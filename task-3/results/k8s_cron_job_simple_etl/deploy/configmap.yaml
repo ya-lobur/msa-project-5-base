@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: etl-config
+  namespace: shipments-etl
+  labels:
+    app: shipments-etl
+data:
+  # Database connection settings (non-sensitive)
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_NAME: "shipments_db"
+
+  # ETL configuration
+  BATCH_SIZE: "1000"
+  OUTPUT_DIR: "/data"
+  LOG_LEVEL: "INFO"

@@ -1,0 +1,304 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: shipments-etl
+  labels:
+    app: postgres
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: etl-config
+              key: DB_NAME
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: etl-secrets
+              key: DB_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: etl-secrets
+              key: DB_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: init-script
+        configMap:
+          name: postgres-init-script
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: shipments-etl
+  labels:
+    app: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  namespace: shipments-etl
+  labels:
+    app: postgres
+data:
+  init.sql: |
+    -- Database initialization script for shipments ETL system
+    -- Creates tables and generates test data
+
+    -- Drop tables if they exist
+    DROP TABLE IF EXISTS shipment_events CASCADE;
+    DROP TABLE IF EXISTS shipments CASCADE;
+    DROP TABLE IF EXISTS vehicles CASCADE;
+    DROP TABLE IF EXISTS drivers CASCADE;
+    DROP TABLE IF EXISTS clients CASCADE;
+
+    -- Create clients table
+    CREATE TABLE clients (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        phone VARCHAR(50),
+        address TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    -- Create drivers table
+    CREATE TABLE drivers (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        license_number VARCHAR(50) NOT NULL UNIQUE,
+        phone VARCHAR(50) NOT NULL,
+        email VARCHAR(255),
+        rating DECIMAL(3, 2) DEFAULT 5.00,
+        status VARCHAR(50) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    -- Create vehicles table
+    CREATE TABLE vehicles (
+        id SERIAL PRIMARY KEY,
+        license_plate VARCHAR(50) NOT NULL UNIQUE,
+        model VARCHAR(255) NOT NULL,
+        capacity_kg DECIMAL(10, 2) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'available',
+        year INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    -- Create shipments table
+    CREATE TABLE shipments (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        driver_id INTEGER NOT NULL REFERENCES drivers(id),
+        vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+        origin VARCHAR(255) NOT NULL,
+        destination VARCHAR(255) NOT NULL,
+        cargo_type VARCHAR(100) NOT NULL,
+        cargo_weight DECIMAL(10, 2) NOT NULL,
+        price DECIMAL(10, 2) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        pickup_date TIMESTAMP,
+        delivery_date TIMESTAMP,
+        notes TEXT
+    );
+
+    -- Create shipment_events table
+    CREATE TABLE shipment_events (
+        id SERIAL PRIMARY KEY,
+        shipment_id INTEGER NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
+        event_type VARCHAR(50) NOT NULL,
+        event_time TIMESTAMP NOT NULL DEFAULT NOW(),
+        location VARCHAR(255),
+        description TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    -- Create indexes for better query performance
+    CREATE INDEX idx_shipments_client_id ON shipments(client_id);
+    CREATE INDEX idx_shipments_driver_id ON shipments(driver_id);
+    CREATE INDEX idx_shipments_vehicle_id ON shipments(vehicle_id);
+    CREATE INDEX idx_shipments_status ON shipments(status);
+    CREATE INDEX idx_shipments_created_at ON shipments(created_at);
+    CREATE INDEX idx_shipment_events_shipment_id ON shipment_events(shipment_id);
+    CREATE INDEX idx_shipment_events_event_time ON shipment_events(event_time);
+
+    -- Insert sample test data (reduced for faster initialization)
+    -- Insert clients (1,000 for testing)
+    INSERT INTO clients (name, email, phone, address)
+    SELECT
+        'Client ' || i,
+        'client' || i || '@example.com',
+        '+7' || LPAD((900 + (i % 100))::TEXT, 3, '0') || LPAD(i::TEXT, 7, '0'),
+        'Address ' || i || ', Moscow, Russia'
+    FROM generate_series(1, 1000) AS i;
+
+    -- Insert drivers (100 for testing)
+    INSERT INTO drivers (name, license_number, phone, email, rating, status)
+    SELECT
+        'Driver ' || i,
+        'DL' || LPAD(i::TEXT, 8, '0'),
+        '+7' || LPAD((900 + (i % 100))::TEXT, 3, '0') || LPAD(i::TEXT, 7, '0'),
+        'driver' || i || '@example.com',
+        4.0 + (random() * 1.0),
+        CASE WHEN i % 10 = 0 THEN 'inactive' ELSE 'active' END
+    FROM generate_series(1, 100) AS i;
+
+    -- Insert vehicles (50 for testing)
+    INSERT INTO vehicles (license_plate, model, capacity_kg, status, year)
+    SELECT
+        'A' || LPAD((i % 100)::TEXT, 3, '0') || 'AA' || LPAD((i / 100 + 1)::TEXT, 2, '0') || '77',
+        CASE (i % 5)
+            WHEN 0 THEN 'Kamaz 5490'
+            WHEN 1 THEN 'Mercedes Actros'
+            WHEN 2 THEN 'Volvo FH16'
+            WHEN 3 THEN 'Scania R500'
+            ELSE 'MAN TGX'
+        END,
+        5000 + (i % 20) * 1000,
+        CASE WHEN i % 15 = 0 THEN 'maintenance' ELSE 'available' END,
+        2015 + (i % 9)
+    FROM generate_series(1, 50) AS i;
+
+    -- Insert shipments (5,000 for testing)
+    INSERT INTO shipments (
+        client_id, driver_id, vehicle_id, origin, destination,
+        cargo_type, cargo_weight, price, status,
+        created_at, updated_at, pickup_date, delivery_date, notes
+    )
+    SELECT
+        (i % 1000) + 1,  -- client_id
+        (i % 100) + 1,   -- driver_id
+        (i % 50) + 1,    -- vehicle_id
+        CASE (i % 10)
+            WHEN 0 THEN 'Moscow'
+            WHEN 1 THEN 'Saint Petersburg'
+            WHEN 2 THEN 'Novosibirsk'
+            WHEN 3 THEN 'Yekaterinburg'
+            WHEN 4 THEN 'Kazan'
+            WHEN 5 THEN 'Nizhny Novgorod'
+            WHEN 6 THEN 'Chelyabinsk'
+            WHEN 7 THEN 'Samara'
+            WHEN 8 THEN 'Omsk'
+            ELSE 'Rostov-on-Don'
+        END,
+        CASE ((i + 5) % 10)
+            WHEN 0 THEN 'Moscow'
+            WHEN 1 THEN 'Saint Petersburg'
+            WHEN 2 THEN 'Novosibirsk'
+            WHEN 3 THEN 'Yekaterinburg'
+            WHEN 4 THEN 'Kazan'
+            WHEN 5 THEN 'Nizhny Novgorod'
+            WHEN 6 THEN 'Chelyabinsk'
+            WHEN 7 THEN 'Samara'
+            WHEN 8 THEN 'Omsk'
+            ELSE 'Rostov-on-Don'
+        END,
+        CASE (i % 8)
+            WHEN 0 THEN 'Electronics'
+            WHEN 1 THEN 'Food Products'
+            WHEN 2 THEN 'Construction Materials'
+            WHEN 3 THEN 'Furniture'
+            WHEN 4 THEN 'Automotive Parts'
+            WHEN 5 THEN 'Chemicals'
+            WHEN 6 THEN 'Textiles'
+            ELSE 'General Cargo'
+        END,
+        1000 + (i % 5000),  -- cargo_weight
+        5000 + (i % 50000),  -- price
+        CASE (i % 5)
+            WHEN 0 THEN 'pending'
+            WHEN 1 THEN 'in_transit'
+            WHEN 2 THEN 'delivered'
+            WHEN 3 THEN 'cancelled'
+            ELSE 'completed'
+        END,
+        NOW() - INTERVAL '1 day' * (i % 90),
+        NOW() - INTERVAL '1 day' * (i % 90),
+        CASE WHEN i % 5 != 0 THEN NOW() - INTERVAL '1 day' * (i % 90) + INTERVAL '1 hour' END,
+        CASE WHEN i % 5 = 4 THEN NOW() - INTERVAL '1 day' * (i % 90) + INTERVAL '2 days' END,
+        CASE WHEN i % 7 = 0 THEN 'Fragile cargo, handle with care' ELSE NULL END
+    FROM generate_series(1, 5000) AS i;
+
+    -- Insert shipment events
+    INSERT INTO shipment_events (shipment_id, event_type, event_time, location, description)
+    SELECT
+        s.id,
+        CASE (sub.event_num % 5)
+            WHEN 0 THEN 'created'
+            WHEN 1 THEN 'assigned'
+            WHEN 2 THEN 'in_transit'
+            WHEN 3 THEN 'delivered'
+            ELSE 'completed'
+        END,
+        s.created_at + INTERVAL '1 hour' * sub.event_num,
+        CASE (sub.event_num % 2)
+            WHEN 0 THEN s.origin
+            ELSE s.destination
+        END,
+        'Event ' || sub.event_num || ' for shipment ' || s.id
+    FROM shipments s
+    CROSS JOIN LATERAL (
+        SELECT generate_series(0, 3) AS event_num
+    ) sub
+    WHERE s.id % 10 < 7;

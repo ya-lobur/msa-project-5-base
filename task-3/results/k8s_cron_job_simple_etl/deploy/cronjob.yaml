@@ -1,0 +1,118 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shipments-etl-cronjob
+  namespace: shipments-etl
+  labels:
+    app: shipments-etl
+    component: etl-job
+spec:
+  # Schedule: Daily at 8 PM (20:00) UTC
+  # For production: "0 20 * * *"
+  # For testing (every 5 minutes): "*/5 * * * *"
+  schedule: "0 20 * * *"
+
+  # Timezone support (requires Kubernetes 1.27+)
+  # timeZone: "Europe/Moscow"
+
+  # Keep last 3 successful and 1 failed job for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
+  # Concurrency policy: Do not allow concurrent runs
+  concurrencyPolicy: Forbid
+
+  # Start deadline (5 minutes)
+  startingDeadlineSeconds: 300
+
+  jobTemplate:
+    metadata:
+      labels:
+        app: shipments-etl
+        component: etl-job
+    spec:
+      # Retry policy
+      backoffLimit: 2
+
+      # Completion timeout (30 minutes)
+      activeDeadlineSeconds: 1800
+
+      template:
+        metadata:
+          labels:
+            app: shipments-etl
+            component: etl-job
+        spec:
+          restartPolicy: OnFailure
+
+          containers:
+            - name: etl-exporter
+              # Update this with your Docker image
+              # For local testing with Minikube, build and use:
+              # minikube image build -t shipments-etl:latest .
+              image: shipments-etl:latest
+              imagePullPolicy: IfNotPresent
+
+              env:
+                # Database configuration from ConfigMap
+                - name: DB_HOST
+                  valueFrom:
+                    configMapKeyRef:
+                      name: etl-config
+                      key: DB_HOST
+                - name: DB_PORT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: etl-config
+                      key: DB_PORT
+                - name: DB_NAME
+                  valueFrom:
+                    configMapKeyRef:
+                      name: etl-config
+                      key: DB_NAME
+
+                # Database credentials from Secret
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: etl-secrets
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: etl-secrets
+                      key: DB_PASSWORD
+
+                # ETL configuration from ConfigMap
+                - name: BATCH_SIZE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: etl-config
+                      key: BATCH_SIZE
+                - name: OUTPUT_DIR
+                  valueFrom:
+                    configMapKeyRef:
+                      name: etl-config
+                      key: OUTPUT_DIR
+                - name: LOG_LEVEL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: etl-config
+                      key: LOG_LEVEL
+
+              volumeMounts:
+                - name: data-volume
+                  mountPath: /data
+
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "500m"
+
+          volumes:
+            - name: data-volume
+              persistentVolumeClaim:
+                claimName: etl-data-pvc
