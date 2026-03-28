@@ -1,0 +1,37 @@
+@startuml c4_spring_batch_architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Container diagram for TradeWare Warehouse System with Spring Batch ETL
+
+Person(warehouse_employee, "Warehouse Employee", "Uses web application to upload inventory reports")
+
+System_Boundary(tradeware_system, "TradeWare System") {
+    Container(web_app, "Web Application", "Angular, WebSockets", "Provides user interface for uploading reports and viewing status")
+
+    Container(backend_api, "Backend API", "WildFly, Java 11", "Handles file validation, business logic, and triggers batch jobs")
+
+    Container(spring_batch_service, "Spring Batch Service", "Spring Boot, Spring Batch", "Processes CSV files in batch mode: reads, validates, enriches, and loads data")
+
+    ContainerDb(inventory_db, "Inventory Database", "PostgreSQL", "Stores current product inventory data")
+
+    ContainerDb(reference_db, "Reference Data Database", "PostgreSQL", "Contains product characteristics, promotions, categories")
+
+    ContainerDb(job_repository, "Job Repository", "PostgreSQL", "Stores Spring Batch job metadata and execution history")
+
+    Container(file_storage, "File Storage", "Google Cloud Storage", "Stores uploaded CSV report files")
+}
+
+Rel(warehouse_employee, web_app, "Uploads CSV reports, views status", "HTTPS")
+Rel(web_app, backend_api, "Makes API calls", "REST/JSON, WebSocket")
+Rel(backend_api, file_storage, "Saves uploaded files", "GCS API")
+Rel(backend_api, spring_batch_service, "Triggers batch job execution", "REST API")
+
+Rel(spring_batch_service, file_storage, "Reads CSV files", "GCS API")
+Rel(spring_batch_service, reference_db, "Reads reference data for enrichment", "JDBC/SQL")
+Rel(spring_batch_service, inventory_db, "Writes processed inventory data", "JDBC/SQL, Batch Insert")
+Rel(spring_batch_service, job_repository, "Stores job execution metadata", "JDBC/SQL")
+Rel(spring_batch_service, backend_api, "Sends completion notifications", "REST API callback")
+
+@enduml

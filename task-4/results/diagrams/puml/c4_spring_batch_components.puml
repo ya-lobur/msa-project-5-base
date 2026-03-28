@@ -1,0 +1,77 @@
+@startuml c4_spring_batch_components
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Component diagram for Spring Batch ETL Service
+
+Container(backend_api, "Backend API", "WildFly, Java 11", "Triggers batch jobs")
+ContainerDb(file_storage, "File Storage", "GCS", "CSV files")
+ContainerDb(reference_db, "Reference DB", "PostgreSQL", "Product data")
+ContainerDb(inventory_db, "Inventory DB", "PostgreSQL", "Inventory data")
+ContainerDb(job_repository, "Job Repository", "PostgreSQL", "Job metadata")
+
+Container_Boundary(spring_batch_service, "Spring Batch Service") {
+    Component(job_launcher, "Job Launcher", "Spring Batch", "Receives job requests and launches batch jobs")
+
+    Component(job_config, "Job Configuration", "Spring Batch Job", "Defines ETL job structure and steps")
+
+    Component(validation_step, "Validation Step", "Spring Batch Step", "Validates CSV file structure and data quality")
+
+    Component(etl_step, "ETL Step", "Spring Batch Step", "Main step: reads, processes, and writes data in chunks")
+
+    Component(csv_reader, "CSV Item Reader", "FlatFileItemReader", "Reads CSV records from GCS, streaming mode")
+
+    Component(item_processor, "Item Processor", "Custom Processor", "Validates records, enriches with reference data")
+
+    Component(item_writer, "Item Writer", "JdbcBatchItemWriter", "Writes records to inventory DB in batches")
+
+    Component(reference_service, "Reference Data Service", "Spring Service", "Caches and provides reference data")
+
+    Component(notification_service, "Notification Service", "Spring Service", "Sends job completion notifications")
+
+    Component(job_listeners, "Job Listeners", "JobExecutionListener", "Handles job lifecycle events (before/after)")
+
+    Component(retry_handler, "Retry Handler", "RetryTemplate", "Manages retry logic for transient errors")
+}
+
+Rel(backend_api, job_launcher, "Triggers job", "REST API")
+Rel(job_launcher, job_config, "Launches", "Spring Batch API")
+Rel(job_config, validation_step, "Executes first", "Step execution")
+Rel(job_config, etl_step, "Executes after validation", "Step execution")
+
+Rel(etl_step, csv_reader, "Uses", "Chunk-oriented processing")
+Rel(etl_step, item_processor, "Uses", "Chunk-oriented processing")
+Rel(etl_step, item_writer, "Uses", "Chunk-oriented processing")
+
+Rel(csv_reader, file_storage, "Reads CSV files", "GCS Client Library")
+Rel(item_processor, reference_service, "Fetches reference data", "Method call")
+Rel(reference_service, reference_db, "Queries", "JDBC/SQL")
+Rel(item_writer, inventory_db, "Batch inserts/updates", "JDBC/SQL")
+
+Rel(job_config, job_listeners, "Registers", "Spring Batch")
+Rel(job_listeners, notification_service, "Triggers on completion", "Method call")
+Rel(notification_service, backend_api, "Sends notification", "REST API")
+
+Rel(etl_step, retry_handler, "Uses for error handling", "Spring Retry")
+Rel(job_launcher, job_repository, "Stores execution metadata", "JDBC/SQL")
+
+note right of etl_step
+  **Chunk-based Processing**
+  - Chunk size: 500 records
+  - Multi-threaded execution
+  - Transaction per chunk
+  - Skip policy for invalid records
+  - Retry policy for transient errors
+end note
+
+note right of item_processor
+  **Processing Logic**
+  1. Validate record format
+  2. Check business rules
+  3. Enrich with product data
+  4. Enrich with promotion data
+  5. Calculate derived fields
+end note
+
+@enduml

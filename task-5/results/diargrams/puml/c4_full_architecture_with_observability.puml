@@ -1,0 +1,115 @@
+@startuml c4_full_architecture_with_observability
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Container diagram: TradeWare System with Observability Stack
+
+Person(warehouse_employee, "Warehouse Employee", "Uploads inventory reports")
+Person(devops_engineer, "DevOps Engineer", "Monitors system health and metrics")
+Person(ops_manager, "Operations Manager", "Views business metrics and SLA")
+
+System_Boundary(tradeware_system, "TradeWare System") {
+    Container(web_app, "Web Application", "Angular, WebSockets", "User interface for uploading reports")
+    Container(backend_api, "Backend API", "WildFly, Java 11", "Handles API requests and triggers batch jobs")
+    Container(spring_batch_service, "Spring Batch Service", "Spring Boot, Spring Batch", "Processes CSV files in batch mode")
+
+    ContainerDb(inventory_db, "Inventory Database", "PostgreSQL", "Product inventory data")
+    ContainerDb(reference_db, "Reference Database", "PostgreSQL", "Product characteristics, promotions")
+    ContainerDb(job_repository, "Job Repository", "PostgreSQL", "Batch job metadata")
+    Container(file_storage, "File Storage", "GCS", "CSV report files")
+}
+
+System_Boundary(observability_stack, "Observability Stack") {
+    Container(prometheus, "Prometheus", "Metrics DB", "Collects and stores time-series metrics")
+    Container(grafana, "Grafana", "Visualization", "Dashboards for metrics visualization")
+    Container(alertmanager, "Alertmanager", "Alert Manager", "Manages alerts, routing, grouping")
+
+    ContainerDb(elasticsearch, "Elasticsearch", "Log Storage", "Stores and indexes logs")
+    Container(logstash, "Logstash", "Log Processor", "Processes and transforms logs")
+    Container(kibana, "Kibana", "Log Visualization", "Search and visualize logs")
+
+    Container(filebeat, "Filebeat", "Log Shipper", "Ships logs from services to Logstash")
+
+    Container(jaeger, "Jaeger", "Distributed Tracing", "Traces request flow across services (optional)")
+}
+
+System_Ext(pagerduty, "PagerDuty", "Incident management")
+System_Ext(slack, "Slack", "Team communication")
+System_Ext(email, "Email", "Notifications")
+
+' User interactions
+Rel(warehouse_employee, web_app, "Uploads CSV, views status", "HTTPS")
+Rel(devops_engineer, grafana, "Views dashboards", "HTTPS")
+Rel(devops_engineer, kibana, "Searches logs", "HTTPS")
+Rel(ops_manager, grafana, "Views business metrics", "HTTPS")
+
+' Application flow
+Rel(web_app, backend_api, "API calls", "REST/JSON, WebSocket")
+Rel(backend_api, file_storage, "Saves files", "GCS API")
+Rel(backend_api, spring_batch_service, "Triggers batch jobs", "REST API")
+Rel(spring_batch_service, file_storage, "Reads CSV files", "GCS API")
+Rel(spring_batch_service, reference_db, "Reads reference data", "JDBC/SQL")
+Rel(spring_batch_service, inventory_db, "Writes inventory data", "JDBC/SQL")
+Rel(spring_batch_service, job_repository, "Stores job metadata", "JDBC/SQL")
+
+' Metrics collection
+Rel(backend_api, prometheus, "Exposes metrics", "/actuator/prometheus")
+Rel(spring_batch_service, prometheus, "Exposes metrics", "/actuator/prometheus")
+Rel(inventory_db, prometheus, "DB metrics", "Postgres Exporter")
+Rel(reference_db, prometheus, "DB metrics", "Postgres Exporter")
+Rel(prometheus, prometheus, "Scrapes targets", "Pull model")
+
+' Metrics visualization and alerting
+Rel(prometheus, grafana, "Provides metrics", "PromQL")
+Rel(prometheus, alertmanager, "Sends alerts", "HTTP")
+Rel(grafana, alertmanager, "Configures alerts", "HTTP")
+
+' Alert routing
+Rel(alertmanager, pagerduty, "Critical alerts (P1)", "API")
+Rel(alertmanager, slack, "Important alerts (P2)", "Webhook")
+Rel(alertmanager, email, "Warning alerts (P3)", "SMTP")
+
+' Logs collection
+Rel(backend_api, filebeat, "Writes JSON logs", "stdout/file")
+Rel(spring_batch_service, filebeat, "Writes JSON logs", "stdout/file")
+Rel(filebeat, logstash, "Ships logs", "Beats protocol")
+Rel(logstash, elasticsearch, "Indexes logs", "HTTP")
+Rel(elasticsearch, kibana, "Provides logs", "Elasticsearch API")
+Rel(grafana, elasticsearch, "Queries logs", "Elasticsearch API")
+
+' Distributed tracing (optional)
+Rel(backend_api, jaeger, "Sends traces", "OpenTelemetry")
+Rel(spring_batch_service, jaeger, "Sends traces", "OpenTelemetry")
+Rel(devops_engineer, jaeger, "Views traces", "HTTPS")
+
+note right of observability_stack
+  **Observability Components:**
+
+  **Metrics:**
+  - Prometheus scrapes metrics every 15s
+  - Grafana provides dashboards
+  - Alertmanager handles alert routing
+
+  **Logging:**
+  - Structured JSON logs
+  - ELK stack for centralized logging
+  - 90-day retention policy
+
+  **Tracing:**
+  - OpenTelemetry instrumentation
+  - Jaeger for trace visualization
+  - 10% sampling in production
+end note
+
+note left of spring_batch_service
+  **Exposed Metrics:**
+  - spring_batch_job_duration_seconds
+  - spring_batch_records_processed_rate
+  - spring_batch_active_jobs
+  - jvm_memory_used_bytes
+  - http_server_requests_total
+  - db_connections_active
+end note
+
+@enduml

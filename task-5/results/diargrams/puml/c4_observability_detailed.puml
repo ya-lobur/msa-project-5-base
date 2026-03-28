@@ -1,0 +1,169 @@
+@startuml c4_observability_detailed
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Component diagram: Observability Stack - Metrics, Logs, and Alerts Flow
+
+Container(spring_batch, "Spring Batch Service", "Spring Boot", "Batch processing service")
+Container(backend_api, "Backend API", "WildFly", "API service")
+ContainerDb(postgres, "PostgreSQL", "Database", "Application databases")
+
+System_Boundary(metrics_stack, "Metrics & Alerting") {
+    Component(actuator, "Spring Boot Actuator", "Micrometer", "Exposes application metrics")
+    Component(node_exporter, "Node Exporter", "Prometheus Exporter", "Exposes system metrics")
+    Component(postgres_exporter, "Postgres Exporter", "Prometheus Exporter", "Exposes database metrics")
+
+    ComponentDb(prometheus, "Prometheus", "Time Series DB", "Stores metrics with 30-day retention")
+
+    Component(grafana, "Grafana", "Visualization Platform", "Creates dashboards and alerts")
+
+    Component(alertmanager, "Alertmanager", "Alert Router", "Routes, groups, and deduplicates alerts")
+}
+
+System_Boundary(logging_stack, "Centralized Logging") {
+    Component(logback, "Logback", "Logging Framework", "Generates structured JSON logs")
+
+    Component(filebeat, "Filebeat", "Log Shipper", "Collects and ships logs")
+
+    Component(logstash, "Logstash", "Log Pipeline", "Parses, filters, enriches logs")
+
+    ComponentDb(elasticsearch, "Elasticsearch", "Document Store", "Indexes logs for search")
+
+    Component(kibana, "Kibana", "Log Explorer", "Search, filter, visualize logs")
+}
+
+System_Boundary(tracing_stack, "Distributed Tracing (Optional)") {
+    Component(otel_agent, "OpenTelemetry Agent", "Instrumentation", "Auto-instruments Java apps")
+
+    Component(jaeger_collector, "Jaeger Collector", "Trace Collector", "Receives traces from agents")
+
+    ComponentDb(jaeger_storage, "Jaeger Storage", "Cassandra/Elasticsearch", "Stores trace data")
+
+    Component(jaeger_ui, "Jaeger UI", "Trace Viewer", "Visualizes request traces")
+}
+
+System_Ext(pagerduty, "PagerDuty", "On-call alerts")
+System_Ext(slack, "Slack", "Team notifications")
+
+' Metrics flow
+Rel(spring_batch, actuator, "Exposes", "HTTP /actuator/prometheus")
+Rel(backend_api, actuator, "Exposes", "HTTP /actuator/prometheus")
+Rel(postgres, postgres_exporter, "Queries", "SQL")
+
+Rel(prometheus, actuator, "Scrapes every 15s", "HTTP Pull")
+Rel(prometheus, node_exporter, "Scrapes every 15s", "HTTP Pull")
+Rel(prometheus, postgres_exporter, "Scrapes every 15s", "HTTP Pull")
+
+Rel(grafana, prometheus, "Queries metrics", "PromQL over HTTP")
+Rel(prometheus, alertmanager, "Fires alerts", "HTTP")
+Rel(grafana, alertmanager, "Manages alert rules", "HTTP API")
+
+Rel(alertmanager, pagerduty, "Critical (P1)", "API")
+Rel(alertmanager, slack, "Important (P2)", "Webhook")
+
+' Logging flow
+Rel(spring_batch, logback, "Uses", "Java logging")
+Rel(backend_api, logback, "Uses", "Java logging")
+Rel(logback, filebeat, "Writes JSON to", "stdout/file")
+
+Rel(filebeat, logstash, "Ships logs", "Beats protocol :5044")
+Rel(logstash, elasticsearch, "Indexes logs", "HTTP :9200")
+Rel(kibana, elasticsearch, "Queries logs", "HTTP :9200")
+Rel(grafana, elasticsearch, "Queries logs (optional)", "Elasticsearch datasource")
+
+' Tracing flow
+Rel(spring_batch, otel_agent, "Instrumented by", "Java Agent")
+Rel(backend_api, otel_agent, "Instrumented by", "Java Agent")
+Rel(otel_agent, jaeger_collector, "Sends traces", "gRPC/HTTP")
+Rel(jaeger_collector, jaeger_storage, "Stores traces", "Native protocol")
+Rel(jaeger_ui, jaeger_storage, "Queries traces", "gRPC")
+
+note right of prometheus
+  **Metrics Collected:**
+
+  **Application:**
+  - spring_batch_job_duration_seconds
+  - spring_batch_records_processed_rate
+  - spring_batch_active_jobs
+  - http_server_requests_total
+  - http_server_requests_seconds
+
+  **JVM:**
+  - jvm_memory_used_bytes
+  - jvm_gc_pause_seconds
+  - jvm_threads_live
+
+  **System:**
+  - node_cpu_seconds_total
+  - node_memory_MemAvailable_bytes
+  - node_disk_io_time_seconds_total
+
+  **Database:**
+  - pg_stat_database_tup_inserted
+  - pg_stat_activity_count
+  - pg_locks_count
+end note
+
+note right of elasticsearch
+  **Log Indices:**
+  - logs-spring-batch-YYYY.MM.DD
+  - logs-backend-api-YYYY.MM.DD
+
+  **Retention:**
+  - Hot: 7 days (SSD)
+  - Warm: 8-30 days
+  - Cold: 31-90 days
+  - Delete: >90 days
+
+  **Fields:**
+  - timestamp, level, logger
+  - message, thread
+  - trace_id, span_id
+  - job_id, user_id, file_name
+end note
+
+note right of alertmanager
+  **Alert Routing:**
+
+  **Critical (P1):**
+  - ServiceDown
+  - DatabaseDown
+  - OutOfMemory
+  → PagerDuty (call + SMS)
+
+  **Important (P2):**
+  - BatchJobTooSlow
+  - HighMemoryUsage
+  - HighSkipRate
+  → Slack #alerts-production
+
+  **Warning (P3):**
+  - HighDiskUsage
+  - SlowQueries
+  → Email to dev team
+end note
+
+note left of grafana
+  **Dashboards:**
+
+  1. **Operational Dashboard**
+     - Service health status
+     - Active batch jobs
+     - System resources
+     - Database metrics
+
+  2. **Business Dashboard**
+     - Files processed today
+     - Success rate vs SLA
+     - Processing time vs SLA
+     - Top validation errors
+
+  3. **Spring Batch Dashboard**
+     - Job execution duration
+     - Records/sec throughput
+     - Skip/retry counts
+     - Chunk processing times
+end note
+
+@enduml
