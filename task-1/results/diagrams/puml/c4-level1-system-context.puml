@@ -1,0 +1,36 @@
+@startuml C4_Level1_System_Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title System Context Diagram - Marketing Data Processing Platform
+
+Person(marketing_team, "Marketing Team", "Analyzes customer data and generates reports")
+Person(data_engineer, "Data Engineer", "Maintains and monitors data pipelines")
+
+System(batch_processing, "Batch Processing System", "Orchestrates data pipelines, processes customer data from multiple sources, generates reports")
+
+System_Ext(file_storage, "File Storage", "CSV files with delivery statuses")
+System_Ext(postgresql, "PostgreSQL Database", "Order information, payment data, extended user data")
+System_Ext(kafka, "Apache Kafka", "Event stream of order modifications")
+System_Ext(bigquery, "Google BigQuery", "Data warehouse for analytics")
+System_Ext(redshift, "Amazon Redshift", "Alternative data warehouse")
+System_Ext(spark, "Apache Spark", "Distributed data processing engine")
+System_Ext(email_service, "Email Service", "Sends notifications about pipeline status")
+System_Ext(external_api, "External APIs", "Third-party data sources")
+
+Rel(marketing_team, batch_processing, "Views reports, monitors pipelines", "Web UI")
+Rel(data_engineer, batch_processing, "Configures and monitors", "Web UI, CLI")
+
+Rel(batch_processing, file_storage, "Reads delivery data", "File System")
+Rel(batch_processing, postgresql, "Reads order and user data", "SQL")
+Rel(batch_processing, kafka, "Consumes events", "Kafka Protocol")
+Rel(batch_processing, bigquery, "Writes processed data", "BigQuery API")
+Rel(batch_processing, redshift, "Writes processed data", "JDBC/SQL")
+Rel(batch_processing, spark, "Submits jobs", "Spark API")
+Rel(batch_processing, external_api, "Fetches additional data", "REST/HTTP")
+Rel(batch_processing, email_service, "Sends notifications", "SMTP")
+
+SHOW_LEGEND()
+
+@enduml

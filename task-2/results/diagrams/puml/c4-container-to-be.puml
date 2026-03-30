@@ -1,0 +1,62 @@
+@startuml c4-container-to-be
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title C4 Container Diagram - Batch Processing Service (To-Be)
+
+Person(admin, "System Administrator", "Monitors batch jobs")
+Person(b2b_client, "B2B Client", "Downloads price lists")
+
+System_Boundary(batch_system, "Batch Processing Service") {
+    Container(scheduler, "CRON Scheduler", "Spring @Scheduled", "Triggers batch job daily at 06:00")
+    Container(job_launcher, "Job Launcher", "Spring Batch", "Manages job execution and lifecycle")
+    Container(batch_job, "Price List Generation Job", "Spring Batch Job", "Reads data, processes, and generates CSV/XLS files")
+    Container(metrics_exporter, "Metrics Exporter", "Spring Actuator + Micrometer", "Exposes Prometheus metrics")
+    Container(job_repository, "Job Repository", "Spring Batch", "Tracks job execution metadata")
+
+    Rel(scheduler, job_launcher, "Triggers", "JobLauncher.run()")
+    Rel(job_launcher, batch_job, "Executes", "Step execution")
+    Rel(batch_job, job_repository, "Updates status", "JDBC")
+    Rel(batch_job, metrics_exporter, "Records metrics")
+}
+
+System_Ext(postgresql, "PostgreSQL Database", "Source data: products, categories, clients, prices")
+System_Ext(file_storage, "S3/MinIO", "Target storage for generated files")
+System_Ext(prometheus, "Prometheus", "Metrics storage and alerting")
+System_Ext(grafana, "Grafana", "Visualization and dashboards")
+System_Ext(elk, "ELK Stack", "Centralized logging")
+
+Rel(batch_job, postgresql, "Reads data (chunk-based)", "JdbcPagingItemReader")
+Rel(batch_job, file_storage, "Writes CSV/XLS", "S3 Client / FlatFileItemWriter")
+Rel(job_repository, postgresql, "Stores metadata", "JDBC")
+
+Rel(metrics_exporter, prometheus, "Scrapes metrics from", "/actuator/prometheus")
+Rel(prometheus, grafana, "Data source for", "PromQL")
+Rel(admin, grafana, "Views dashboards", "HTTPS")
+
+Rel(batch_system, elk, "Streams logs to", "Filebeat/Fluentd")
+Rel(admin, elk, "Searches logs in", "Kibana UI")
+
+Rel(b2b_client, file_storage, "Downloads files from", "HTTPS")
+
+note right of batch_job
+  **Job Structure:**
+  Step 1: Read from DB
+    - JdbcPagingItemReader
+    - SQL JOIN: products, categories,
+      clients, client_prices
+    - Page size: 100-200 rows
+
+  Step 2: Process (optional)
+    - ItemProcessor
+    - Data transformation
+    - Validation
+
+  Step 3: Write to files
+    - FlatFileItemWriter (CSV)
+    - Apache POI Writer (XLS)
+    - One file per client
+end note
+
+@enduml

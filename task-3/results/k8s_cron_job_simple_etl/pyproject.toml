@@ -1,0 +1,20 @@
+[project]
+name = "k8s-cron-job-simple-etl"
+version = "0.1.0"
+description = "Kubernetes CronJob-based ETL system for exporting shipment data to CSV"
+requires-python = ">=3.12"
+dependencies = [
+    "asyncpg>=0.29.0",
+    "aiofiles>=24.1.0",
+    "pydantic-settings>=2.6.0",
+]
+
+[project.scripts]
+etl-export = "src.presentation.cli:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

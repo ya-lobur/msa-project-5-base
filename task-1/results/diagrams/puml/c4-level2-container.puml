@@ -1,0 +1,68 @@
+@startuml C4_Level2_Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Container Diagram - Batch Processing System (Apache Airflow)
+
+Person(marketing_team, "Marketing Team", "Analyzes customer data and generates reports")
+Person(data_engineer, "Data Engineer", "Maintains and monitors data pipelines")
+
+
+System_Boundary(batch_system, "Batch Processing System") {
+    Container(web_server, "Airflow Web Server", "Python/Flask", "Provides UI for monitoring and managing workflows")
+    Container(scheduler, "Airflow Scheduler", "Python", "Schedules and triggers DAG runs")
+    Container(worker, "Airflow Worker(s)", "Python/Celery", "Executes tasks from DAGs")
+    Container(triggerer, "Airflow Triggerer", "Python/AsyncIO", "Handles deferrable operators")
+
+    ContainerDb(metadata_db, "Metadata Database", "PostgreSQL", "Stores DAG metadata, task status, logs")
+    ContainerQueue(message_broker, "Message Broker", "Redis/RabbitMQ", "Queues tasks for workers")
+
+    Container(data_processor, "Data Processing Service", "Python/AsyncIO", "Custom business logic for data transformation, implements clean architecture")
+    Container(di_container, "DI Container", "Python", "Manages dependencies and resources")
+}
+
+
+System_Ext(file_storage, "File Storage", "CSV files")
+System_Ext(postgresql_source, "PostgreSQL", "Source data")
+System_Ext(kafka, "Apache Kafka", "Event stream")
+System_Ext(bigquery, "BigQuery", "Data warehouse")
+System_Ext(redshift, "Redshift", "Data warehouse")
+System_Ext(spark, "Spark Cluster", "Distributed processing")
+System_Ext(email_service, "Email Service", "Notifications")
+
+Rel(marketing_team, web_server, "Views dashboards", "HTTPS")
+Rel(data_engineer, web_server, "Manages DAGs", "HTTPS")
+
+Rel(scheduler, metadata_db, "Reads/writes task state", "SQL")
+Rel(scheduler, message_broker, "Publishes tasks", "Redis Protocol")
+Rel(web_server, metadata_db, "Reads DAG info", "SQL")
+
+Rel(worker, message_broker, "Consumes tasks", "Redis Protocol")
+Rel(worker, metadata_db, "Updates task status", "SQL")
+Rel(worker, data_processor, "Executes", "Python API")
+
+Rel(triggerer, metadata_db, "Monitors deferred tasks", "SQL")
+Rel(triggerer, worker, "Triggers task completion", "Async")
+
+Rel(data_processor, di_container, "Resolves dependencies", "Python")
+
+Rel(data_processor, file_storage, "Reads CSV files", "File I/O")
+Rel(data_processor, postgresql_source, "Queries data", "asyncpg/SQL")
+Rel(data_processor, kafka, "Consumes events", "aiokafka")
+Rel(data_processor, bigquery, "Loads data", "BigQuery Provider")
+Rel(data_processor, redshift, "Loads data", "Redshift Provider")
+Rel(data_processor, spark, "Submits jobs", "Spark Provider")
+
+Rel(worker, email_service, "Sends alerts", "SMTP Provider")
+
+note right of data_processor
+  Implements Clean Architecture:
+  - Domain Layer: Business entities
+  - Application Layer: Use cases
+  - Infrastructure Layer: DB, APIs
+end note
+
+SHOW_LEGEND()
+
+@enduml

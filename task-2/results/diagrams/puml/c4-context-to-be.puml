@@ -1,0 +1,47 @@
+@startuml c4-context-to-be
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title C4 Context Diagram - Batch Processing System (To-Be)
+
+Person(admin, "System Administrator", "Monitors batch jobs and system health")
+Person(b2b_client, "B2B Client", "Downloads custom price lists")
+
+System(batch_service, "Batch Processing Service", "Spring Boot application with Spring Batch for generating price lists on schedule")
+
+System_Ext(postgresql, "PostgreSQL Database", "Stores products, categories, clients, and pricing data")
+System_Ext(file_storage, "File Storage", "S3/MinIO for storing generated CSV/XLS price lists")
+System_Ext(monitoring, "Monitoring System", "Prometheus + Grafana for metrics and dashboards")
+System_Ext(logging, "Logging System", "ELK Stack for centralized logging")
+System_Ext(notification, "Notification Service", "Slack/Email for alerts and notifications")
+
+Rel(batch_service, postgresql, "Reads data from", "JDBC/SQL")
+Rel(batch_service, file_storage, "Writes price lists to", "S3 API")
+Rel(batch_service, monitoring, "Sends metrics to", "Prometheus metrics endpoint")
+Rel(batch_service, logging, "Sends logs to", "JSON logs via Filebeat")
+Rel(batch_service, notification, "Sends alerts to", "REST API/SMTP")
+
+Rel(admin, batch_service, "Monitors and manages", "REST API/Actuator")
+Rel(admin, monitoring, "Views metrics and dashboards", "HTTPS")
+Rel(admin, logging, "Searches logs", "HTTPS")
+
+Rel(b2b_client, file_storage, "Downloads price lists from", "HTTPS/S3 API")
+
+note right of batch_service
+  **Scheduled Execution:**
+  - Runs daily at 06:00 AM
+  - CRON: "0 0 6 * * *"
+
+  **Processing:**
+  - Chunk-based processing (100-200 rows)
+  - Generates separate CSV/XLS per client
+  - Handles 5k-10k rows in 5-10 minutes
+
+  **Features:**
+  - Retry mechanism for failures
+  - Transaction management
+  - Health checks
+end note
+
+@enduml
